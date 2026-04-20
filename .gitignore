@@ -1,0 +1,46 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*/.ipynb_checkpoints/*
+
+# YOLOv8 & Training
+runs/
+*.pt
+*.onnx
+*.engine
+
+# Datasets (Extremely large, do not push)
+COD10K-datasets/
+COD10K_Partitioning/
+COD10K-SMM/
+datasets/
+
+# Heavy pre-computed files
+centroids.pkl
+*.pkl
+*.npy
+
+# Compressed Archives (Don't push datasets as zip)
+*.zip
+*.rar
+*.7z
+*.tar.gz
+*.pdf
+
+# Scratch / Temp files
+scratch/
+visualize_labels.py
+verify_smm.py
+bbox_check_collage.jpg
+smm_verification.jpg
+
+# Proposal & Docs
+# (We WANT to push markdown files, so we don't ignore .md)
