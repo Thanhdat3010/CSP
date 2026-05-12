@@ -112,10 +112,10 @@ def generate_dataset(partition_dir, base_dataset_dir, centroids_file, output_dir
             shutil.copy(label_path, os.path.join(output_dir, 'val', 'labels', label_name))
 
 if __name__ == "__main__":
-    PARTITION_DIR = r"d:\Code\CSP\COD10K_Partitioning"
-    BASE_DIR = r"d:\Code\CSP\COD10K-datasets"
-    CENTROIDS = r"d:\Code\CSP\centroids.pkl"
-    OUTPUT_DATASET = r"d:\Code\CSP\COD10K-SMM"
+    PARTITION_DIR = r"d:\Code\CSP\data\COD10K_Partitioning"
+    BASE_DIR = r"d:\Code\CSP\data\COD10K-datasets"
+    CENTROIDS = r"d:\Code\CSP\data\centroids.pkl"
+    OUTPUT_DATASET = r"d:\Code\CSP\data\COD10K-SMM"
     
     generate_dataset(PARTITION_DIR, BASE_DIR, CENTROIDS, OUTPUT_DATASET)
     print(f"\nSMM Dataset Generation Complete: {OUTPUT_DATASET}")

@@ -18,15 +18,15 @@ runs/
 *.engine
 
 # Datasets (Extremely large, do not push)
-COD10K-datasets/
-COD10K_Partitioning/
-COD10K-SMM/
-datasets/
+data/COD10K-datasets/
+data/COD10K_Partitioning/
+data/COD10K-SMM/
+data/datasets/
 
 # Heavy pre-computed files
-centroids.pkl
-*.pkl
-*.npy
+data/centroids.pkl
+data/*.pkl
+data/*.npy
 
 # Compressed Archives (Don't push datasets as zip)
 *.zip

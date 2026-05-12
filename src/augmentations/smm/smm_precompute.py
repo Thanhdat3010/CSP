@@ -51,8 +51,8 @@ def get_cluster_centroids(partition_dir):
     return centroids
 
 if __name__ == "__main__":
-    PARTITION_DIR = r"d:\Code\CSP\COD10K_Partitioning\train\images"
-    OUTPUT_FILE = r"d:\Code\CSP\centroids.pkl"
+    PARTITION_DIR = r"d:\Code\CSP\data\COD10K_Partitioning\train\images"
+    OUTPUT_FILE = r"d:\Code\CSP\data\centroids.pkl"
     
     centroids = get_cluster_centroids(PARTITION_DIR)
     
