@@ -21,6 +21,9 @@ runs/
 data/COD10K-datasets/
 data/COD10K_Partitioning/
 data/COD10K-SMM/
+data/COD10K-MIXUP/
+data/COD10K-CUTMIX/
+data/COD10K-COPYPASTE/
 data/datasets/
 
 # Heavy pre-computed files
