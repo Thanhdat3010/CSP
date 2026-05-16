@@ -55,6 +55,26 @@ def xyxy_to_yolo(cls, x1, y1, x2, y2, img_w, img_h):
     return cls, x, y, w, h
 
 
+def rect_iou(a, b):
+    ax1, ay1, ax2, ay2 = a
+    bx1, by1, bx2, by2 = b
+    inter_x1 = max(ax1, bx1)
+    inter_y1 = max(ay1, by1)
+    inter_x2 = min(ax2, bx2)
+    inter_y2 = min(ay2, by2)
+    inter_w = max(0.0, inter_x2 - inter_x1)
+    inter_h = max(0.0, inter_y2 - inter_y1)
+    inter = inter_w * inter_h
+    if inter == 0.0:
+        return 0.0
+    area_a = max(0.0, ax2 - ax1) * max(0.0, ay2 - ay1)
+    area_b = max(0.0, bx2 - bx1) * max(0.0, by2 - by1)
+    union = area_a + area_b - inter
+    if union <= 0.0:
+        return 0.0
+    return inter / union
+
+
 def copy_validation_split(base_dir, output_dir):
     for split in ["val"]:
         out_img_dir = os.path.join(output_dir, split, "images")
@@ -75,7 +95,7 @@ def copy_validation_split(base_dir, output_dir):
                 write_labels(os.path.join(out_lbl_dir, label_name), [])
 
 
-def paste_objects(img_dst, labels_dst, img_src, labels_src, max_paste, rng):
+def paste_objects(img_dst, labels_dst, img_src, labels_src, max_paste, rng, max_iou=0.5, max_trials=10):
     h, w = img_dst.shape[:2]
 
     if not labels_src:
@@ -100,54 +120,57 @@ def paste_objects(img_dst, labels_dst, img_src, labels_src, max_paste, rng):
         if pw >= w or ph >= h:
             continue
 
-        nx1 = rng.randint(0, w - pw)
-        ny1 = rng.randint(0, h - ph)
-        nx2 = nx1 + pw
-        ny2 = ny1 + ph
+        placed = False
+        for _ in range(max_trials):
+            nx1 = rng.randint(0, w - pw)
+            ny1 = rng.randint(0, h - ph)
+            nx2 = nx1 + pw
+            ny2 = ny1 + ph
 
-        img_dst[ny1:ny2, nx1:nx2] = patch
-        new_label = xyxy_to_yolo(cls, nx1, ny1, nx2, ny2, w, h)
-        if new_label is not None:
-            labels_dst.append(new_label)
+            new_box = (nx1, ny1, nx2, ny2)
+            too_much_overlap = False
+            for existing in labels_dst:
+                ex_cls, ex_x1, ex_y1, ex_x2, ex_y2 = yolo_to_xyxy(existing, w, h)
+                if rect_iou(new_box, (ex_x1, ex_y1, ex_x2, ex_y2)) > max_iou:
+                    too_much_overlap = True
+                    break
+            if too_much_overlap:
+                continue
+
+            img_dst[ny1:ny2, nx1:nx2] = patch
+            new_label = xyxy_to_yolo(cls, nx1, ny1, nx2, ny2, w, h)
+            if new_label is not None:
+                labels_dst.append(new_label)
+                placed = True
+            break
+
+        if not placed:
+            continue
 
     return img_dst, labels_dst
 
 
-def generate_copypaste_dataset(base_dir, smm_dir, output_dir, max_paste=3, seed=42):
+def generate_copypaste_dataset(base_dir, output_dir, max_paste=3, seed=42, max_iou=0.5):
     rng = random.Random(seed)
 
     base_train_img_dir = os.path.join(base_dir, "train", "images")
     base_train_lbl_dir = os.path.join(base_dir, "train", "labels")
 
-    smm_train_img_dir = os.path.join(smm_dir, "train", "images")
-
     base_train_imgs = sorted(glob(os.path.join(base_train_img_dir, "*.jpg")))
-    smm_train_imgs = sorted(glob(os.path.join(smm_train_img_dir, "*.jpg")))
 
     if not base_train_imgs:
         raise FileNotFoundError(f"No train images found in {base_train_img_dir}")
-    if not smm_train_imgs:
-        raise FileNotFoundError(f"No train images found in {smm_train_img_dir}")
 
     base_count = len(base_train_imgs)
-    target_count = len(smm_train_imgs)
 
     print(f"Base train images: {base_count}")
-    print(f"SMM train images (target): {target_count}")
 
     out_train_img_dir = os.path.join(output_dir, "train", "images")
     out_train_lbl_dir = os.path.join(output_dir, "train", "labels")
     os.makedirs(out_train_img_dir, exist_ok=True)
     os.makedirs(out_train_lbl_dir, exist_ok=True)
 
-    if base_count > target_count:
-        raise ValueError(
-            "Base train images exceed SMM target count; cannot keep totals equal "
-            "while preserving all originals."
-        )
-
-    current_count = 0
-
+    # Copy all originals
     for img_path in tqdm(base_train_imgs, desc="Copying originals"):
         img_name = os.path.basename(img_path)
         label_name = os.path.splitext(img_name)[0] + ".txt"
@@ -159,13 +182,12 @@ def generate_copypaste_dataset(base_dir, smm_dir, output_dir, max_paste=3, seed=
         else:
             write_labels(os.path.join(out_train_lbl_dir, label_name), [])
 
-        current_count += 1
-
+    # Generate copypaste: each original with random partner pasted once
     cp_index = 0
-    cp_needed = max(0, target_count - current_count)
-    cp_bar = tqdm(total=cp_needed, desc="Generating copypaste")
-    while current_count < target_count:
-        img_path1, img_path2 = rng.sample(base_train_imgs, 2)
+    for img_path1 in tqdm(base_train_imgs, desc="Generating copypaste (1 per original)"):
+        # Select random partner
+        img_path2 = rng.choice(base_train_imgs)
+        
         img1 = cv2.imread(img_path1)
         img2 = cv2.imread(img_path2)
         if img1 is None or img2 is None:
@@ -180,7 +202,15 @@ def generate_copypaste_dataset(base_dir, smm_dir, output_dir, max_paste=3, seed=
         labels1 = load_labels(lbl1)
         labels2 = load_labels(lbl2)
 
-        aug_img, aug_labels = paste_objects(img1, list(labels1), img2, labels2, max_paste, rng)
+        aug_img, aug_labels = paste_objects(
+            img1,
+            list(labels1),
+            img2,
+            labels2,
+            max_paste,
+            rng,
+            max_iou=max_iou,
+        )
 
         out_name = f"copypaste_{cp_index:06d}.jpg"
         out_label = f"copypaste_{cp_index:06d}.txt"
@@ -191,11 +221,6 @@ def generate_copypaste_dataset(base_dir, smm_dir, output_dir, max_paste=3, seed=
             continue
 
         write_labels(os.path.join(out_train_lbl_dir, out_label), aug_labels)
-
-        current_count += 1
-        cp_bar.update(1)
-
-    cp_bar.close()
 
     copy_validation_split(base_dir, output_dir)
 
@@ -210,13 +235,15 @@ def generate_copypaste_dataset(base_dir, smm_dir, output_dir, max_paste=3, seed=
         with open(os.path.join(output_dir, "data.yaml"), "w", encoding="utf-8") as f:
             yaml.safe_dump(data_yaml, f, default_flow_style=False)
 
-    print(f"Copy-Paste dataset ready: {output_dir}")
-    print(f"Train images (target): {target_count}")
+    total_train = base_count + cp_index
+    print(f"✅ Copy-Paste dataset ready: {output_dir}")
+    print(f"   Original images: {base_count}")
+    print(f"   Copy-Paste generated: {cp_index}")
+    print(f"   Total train images: {total_train}")
 
 
 if __name__ == "__main__":
     BASE_DIR = r"d:\Code\CSP\data\COD10K-datasets"
-    SMM_DIR = r"d:\Code\CSP\data\COD10K-SMM"
     OUTPUT_DIR = r"d:\Code\CSP\data\COD10K-COPYPASTE"
 
-    generate_copypaste_dataset(BASE_DIR, SMM_DIR, OUTPUT_DIR)
+    generate_copypaste_dataset(BASE_DIR, OUTPUT_DIR)

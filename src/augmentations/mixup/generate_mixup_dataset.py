@@ -48,24 +48,18 @@ def copy_validation_split(base_dir, output_dir):
                 write_label_lines(os.path.join(out_lbl_dir, label_name), [])
 
 
-def generate_mixup_dataset(base_dir, smm_dir, output_dir, mixup_alpha=0.4, seed=42):
+def generate_mixup_dataset(base_dir, output_dir, mixup_alpha=0.4, seed=42):
     random.seed(seed)
 
     base_train_img_dir = os.path.join(base_dir, "train", "images")
     base_train_lbl_dir = os.path.join(base_dir, "train", "labels")
 
-    smm_train_img_dir = os.path.join(smm_dir, "train", "images")
-
     base_train_imgs = sorted(glob(os.path.join(base_train_img_dir, "*.jpg")))
-    smm_train_imgs = sorted(glob(os.path.join(smm_train_img_dir, "*.jpg")))
 
     if not base_train_imgs:
         raise FileNotFoundError(f"No train images found in {base_train_img_dir}")
-    if not smm_train_imgs:
-        raise FileNotFoundError(f"No train images found in {smm_train_img_dir}")
 
     base_count = len(base_train_imgs)
-    target_count = len(smm_train_imgs)
 
     out_train_img_dir = os.path.join(output_dir, "train", "images")
     out_train_lbl_dir = os.path.join(output_dir, "train", "labels")
@@ -73,17 +67,8 @@ def generate_mixup_dataset(base_dir, smm_dir, output_dir, mixup_alpha=0.4, seed=
     os.makedirs(out_train_lbl_dir, exist_ok=True)
 
     print(f"Base train images: {base_count}")
-    print(f"SMM train images (target): {target_count}")
 
-    current_count = 0
-
-    if len(base_train_imgs) > target_count:
-        raise ValueError(
-            "Base train images exceed SMM target count; cannot keep totals equal "
-            "while preserving all originals."
-        )
-
-    # Copy all originals first; remaining slots will be mixup
+    # Copy all originals
     for img_path in tqdm(base_train_imgs, desc="Copying originals"):
         img_name = os.path.basename(img_path)
         label_name = os.path.splitext(img_name)[0] + ".txt"
@@ -95,14 +80,12 @@ def generate_mixup_dataset(base_dir, smm_dir, output_dir, mixup_alpha=0.4, seed=
         else:
             write_label_lines(os.path.join(out_train_lbl_dir, label_name), [])
 
-        current_count += 1
-
-    # Generate mixup to reach target count
+    # Generate mixup: each original blended once with random partner
     mixup_index = 0
-    mixup_needed = max(0, target_count - current_count)
-    mixup_bar = tqdm(total=mixup_needed, desc="Generating mixup")
-    while current_count < target_count:
-        img_path1, img_path2 = random.sample(base_train_imgs, 2)
+    for img_path1 in tqdm(base_train_imgs, desc="Generating mixup (1 per original)"):
+        # Select random partner
+        img_path2 = random.choice(base_train_imgs)
+        
         img1 = cv2.imread(img_path1)
         img2 = cv2.imread(img_path2)
         if img1 is None or img2 is None:
@@ -112,6 +95,7 @@ def generate_mixup_dataset(base_dir, smm_dir, output_dir, mixup_alpha=0.4, seed=
         if img2.shape[:2] != (h, w):
             img2 = cv2.resize(img2, (w, h))
 
+        # Sample lambda from Beta distribution
         lam = sample_lambda(mixup_alpha)
         mix_img = cv2.addWeighted(img1, lam, img2, 1.0 - lam, 0)
 
@@ -129,11 +113,6 @@ def generate_mixup_dataset(base_dir, smm_dir, output_dir, mixup_alpha=0.4, seed=
         lines = load_label_lines(lbl1) + load_label_lines(lbl2)
         write_label_lines(os.path.join(out_train_lbl_dir, mix_label), lines)
 
-        current_count += 1
-        mixup_bar.update(1)
-
-    mixup_bar.close()
-
     copy_validation_split(base_dir, output_dir)
 
     # Update data.yaml
@@ -148,13 +127,15 @@ def generate_mixup_dataset(base_dir, smm_dir, output_dir, mixup_alpha=0.4, seed=
         with open(os.path.join(output_dir, "data.yaml"), "w", encoding="utf-8") as f:
             yaml.safe_dump(data_yaml, f, default_flow_style=False)
 
-    print(f"Mixup dataset ready: {output_dir}")
-    print(f"Train images (target): {target_count}")
+    total_train = base_count + mixup_index
+    print(f"✅ Mixup dataset ready: {output_dir}")
+    print(f"   Original images: {base_count}")
+    print(f"   Mixup generated: {mixup_index}")
+    print(f"   Total train images: {total_train}")
 
 
 if __name__ == "__main__":
     BASE_DIR = r"d:\Code\CSP\data\COD10K-datasets"
-    SMM_DIR = r"d:\Code\CSP\data\COD10K-SMM"
     OUTPUT_DIR = r"d:\Code\CSP\data\COD10K-MIXUP"
 
-    generate_mixup_dataset(BASE_DIR, SMM_DIR, OUTPUT_DIR)
+    generate_mixup_dataset(BASE_DIR, OUTPUT_DIR)

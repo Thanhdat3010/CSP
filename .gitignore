@@ -20,7 +20,7 @@ runs/
 # Datasets (Extremely large, do not push)
 data/COD10K-datasets/
 data/COD10K_Partitioning/
-data/COD10K-SMM/
+data/COD10K-CHARM/
 data/COD10K-MIXUP/
 data/COD10K-CUTMIX/
 data/COD10K-COPYPASTE/
@@ -41,9 +41,7 @@ data/*.npy
 # Scratch / Temp files
 scratch/
 visualize_labels.py
-verify_smm.py
 bbox_check_collage.jpg
-smm_verification.jpg
 
 # Proposal & Docs
 # (We WANT to push markdown files, so we don't ignore .md)
