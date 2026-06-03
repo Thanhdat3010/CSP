@@ -12,11 +12,13 @@ CLI arguments override these defaults at runtime.
 # ==============================================================================
 SEED = 42
 
+import sys
+
 # ==============================================================================
 # Hardware — tune based on your GPU (defaults optimized for A100)
 # ==============================================================================
 BATCH_SIZE = 16
-NUM_WORKERS = 2           # DataLoader workers (GPU-bound tasks) - Reduced for consumer GPU
+NUM_WORKERS = 0 if sys.platform == "win32" else 2  # Set to 0 on Windows to avoid pickling/spawn issues
 MAX_WORKERS = 4           # ThreadPoolExecutor workers (CPU/IO-bound tasks) - Reduced for consumer GPU
 
 # ==============================================================================
