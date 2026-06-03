@@ -59,7 +59,7 @@ SIMILARITY_THRESHOLD = 0.65   # Minimum cosine similarity for habitat matching
 # ==============================================================================
 SYNTHESIS_BATCH_SIZE = 32     # Reduced for consumer GPU (4GB VRAM)
 MAX_SYNTHESIS_IMAGES = 20000  # Cap on the number of generated augmented images
-MAX_RETRIES = 50
+MAX_RETRIES = 15
 BLUR_THRESHOLD = 50.0
 Z_BUFFER_MARGIN = 0.05
 LBP_RADIUS = 3
