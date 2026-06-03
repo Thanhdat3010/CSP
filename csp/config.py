@@ -15,9 +15,9 @@ SEED = 42
 # ==============================================================================
 # Hardware — tune based on your GPU (defaults optimized for A100)
 # ==============================================================================
-BATCH_SIZE = 256
-NUM_WORKERS = 12          # DataLoader workers (GPU-bound tasks)
-MAX_WORKERS = 32          # ThreadPoolExecutor workers (CPU/IO-bound tasks)
+BATCH_SIZE = 16
+NUM_WORKERS = 2           # DataLoader workers (GPU-bound tasks) - Reduced for consumer GPU
+MAX_WORKERS = 4           # ThreadPoolExecutor workers (CPU/IO-bound tasks) - Reduced for consumer GPU
 
 # ==============================================================================
 # Dataset Ingestion
@@ -55,7 +55,8 @@ SIMILARITY_THRESHOLD = 0.65   # Minimum cosine similarity for habitat matching
 # ==============================================================================
 # Synthesis Engine
 # ==============================================================================
-SYNTHESIS_BATCH_SIZE = 512
+SYNTHESIS_BATCH_SIZE = 32     # Reduced for consumer GPU (4GB VRAM)
+MAX_SYNTHESIS_IMAGES = 20000  # Cap on the number of generated augmented images
 MAX_RETRIES = 50
 BLUR_THRESHOLD = 50.0
 Z_BUFFER_MARGIN = 0.05
@@ -69,4 +70,4 @@ SOURCE_CACHE_SIZE = 500
 # ==============================================================================
 # Packaging
 # ==============================================================================
-PACKAGE_MAX_WORKERS = 8
+PACKAGE_MAX_WORKERS = 2

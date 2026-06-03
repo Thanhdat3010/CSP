@@ -44,6 +44,8 @@ def parse_args():
                         help="Number of DataLoader workers.")
     parser.add_argument("--max-retries", type=int, default=config.MAX_RETRIES,
                         help="Max placement attempts per object.")
+    parser.add_argument("--max-synthesis-images", type=int, default=config.MAX_SYNTHESIS_IMAGES,
+                        help="Max number of successfully synthesized images to generate.")
     parser.add_argument("--seed", type=int, default=config.SEED,
                         help="Random seed for reproducibility.")
     parser.add_argument("--verbose", action="store_true",
@@ -64,6 +66,7 @@ def main():
         num_workers=args.num_workers,
         max_retries=args.max_retries,
         seed=args.seed,
+        max_synthesis_images=args.max_synthesis_images,
     )
 
     print(f"\n✅ Synthesis complete!")

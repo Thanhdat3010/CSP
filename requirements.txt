@@ -14,3 +14,4 @@ scipy>=1.11.0
 optuna>=3.3.0
 tqdm>=4.65.0
 gdown>=5.0.0
+timm

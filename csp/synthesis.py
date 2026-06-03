@@ -90,6 +90,7 @@ def synthesize(
     num_workers: int = config.NUM_WORKERS,
     max_retries: int = config.MAX_RETRIES,
     seed: int = config.SEED,
+    max_synthesis_images: int = config.MAX_SYNTHESIS_IMAGES,
 ):
     """Execute the full synthesis engine.
 
@@ -102,6 +103,7 @@ def synthesize(
         num_workers: DataLoader workers.
         max_retries: Max placement attempts per object.
         seed: Random seed.
+        max_synthesis_images: Max number of successfully synthesized images to generate.
 
     Returns:
         Number of successfully synthesized images.
@@ -136,15 +138,21 @@ def synthesize(
     success_count = 0
     source_image_cache = {}
 
-    logger.info("Starting synthesis loop...")
+    logger.info("Starting synthesis loop (max limit: %d)...", max_synthesis_images)
     with torch.no_grad():
         for batch_tensors, batch_paths, batch_obj_jsons, batch_valid, batch_h, batch_w in tqdm(
             dataloader, desc="Synthesizing Scenes"
         ):
+            if success_count >= max_synthesis_images:
+                logger.info("Reached max synthesis image limit (%d). Breaking loop.", max_synthesis_images)
+                break
+
             batch_tensors = batch_tensors.to(device)
             depth_preds = midas(batch_tensors)
 
             for i in range(len(batch_paths)):
+                if success_count >= max_synthesis_images:
+                    break
                 if not batch_valid[i]:
                     continue
 

@@ -27,7 +27,7 @@ def load_dinov2(device: torch.device) -> torch.nn.Module:
     """
     logger.info("Loading DINOv2 (%s) backbone...", config.DINO_MODEL)
     model = torch.hub.load(
-        "facebookresearch/dinov2", config.DINO_MODEL
+        "facebookresearch/dinov2", config.DINO_MODEL, trust_repo=True
     ).to(device)
     model.eval()
     logger.info("DINOv2 initialized on %s", device)
@@ -44,9 +44,9 @@ def load_midas(device: torch.device):
         Tuple of (model, transform).
     """
     logger.info("Loading MiDaS-Small depth estimator...")
-    model = torch.hub.load("intel-isl/MiDaS", "MiDaS_small").to(device)
+    model = torch.hub.load("intel-isl/MiDaS", "MiDaS_small", trust_repo=True).to(device)
     model.eval()
-    transforms = torch.hub.load("intel-isl/MiDaS", "transforms").small_transform
+    transforms = torch.hub.load("intel-isl/MiDaS", "transforms", trust_repo=True).small_transform
     logger.info("MiDaS initialized on %s", device)
     return model, transforms
 

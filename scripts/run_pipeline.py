@@ -86,6 +86,8 @@ def parse_args():
                         help="Max synthesis placement attempts.")
     parser.add_argument("--synthesis-batch-size", type=int, default=config.SYNTHESIS_BATCH_SIZE,
                         help="Batch size specifically for synthesis MiDaS.")
+    parser.add_argument("--max-synthesis-images", type=int, default=config.MAX_SYNTHESIS_IMAGES,
+                        help="Max number of successfully synthesized images to generate.")
 
     # Output
     parser.add_argument("--output-name", type=str, default="COD10K-AUG-OURS",
@@ -201,6 +203,7 @@ def main():
         num_workers=args.num_workers,
         max_retries=args.max_retries,
         seed=args.seed,
+        max_synthesis_images=args.max_synthesis_images,
     )
 
     # ====================================================================

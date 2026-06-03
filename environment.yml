@@ -28,3 +28,4 @@ dependencies:
     - opencv-python>=4.8.0
     - optuna>=3.3.0
     - gdown>=5.0.0
+    - timm
