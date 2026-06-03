@@ -122,9 +122,34 @@ def synthesize(
     # Load MiDaS
     midas, midas_transforms = load_midas(device)
 
+    # Pre-scan mask and label files in data_dir once for O(1) lookups
+    logger.info("Pre-scanning dataset masks and labels in %s...", data_dir)
+    mask_files = {}
+    label_files = {}
+    for root, dirs, files in os.walk(data_dir):
+        path_parts = root.replace("\\", "/").split("/")
+        if "mask" in path_parts:
+            for f in files:
+                if f.endswith((".png", ".jpg", ".jpeg")):
+                    base = os.path.splitext(f)[0]
+                    mask_files[base] = os.path.join(root, f)
+        elif "label" in path_parts:
+            for f in files:
+                if f.endswith(".txt"):
+                    base = os.path.splitext(f)[0]
+                    label_files[base] = os.path.join(root, f)
+    logger.info("Found %d masks and %d labels in dataset directory.", len(mask_files), len(label_files))
+
     # Flatten tasks
     flattened_tasks = _flatten_tasks(environments, dictionary)
     logger.info("Flattened into %d atomic synthesis tasks.", len(flattened_tasks))
+
+    # Shuffle and limit candidate tasks to prevent massive dataloader overhead
+    random.shuffle(flattened_tasks)
+    max_candidates = max_synthesis_images * 3
+    if len(flattened_tasks) > max_candidates:
+        flattened_tasks = flattened_tasks[:max_candidates]
+        logger.info("Limited synthesis candidates to %d tasks for performance.", len(flattened_tasks))
 
     # DataLoader
     dataloader = DataLoader(
@@ -173,22 +198,18 @@ def synthesize(
 
                 # Background mask & labels
                 bg_mask = np.zeros((H, W), dtype=np.uint8)
-                possible_bg_masks = glob(
-                    os.path.join(data_dir, "**", "mask", f"{bg_base_name}.*"), recursive=True
-                )
-                if possible_bg_masks:
-                    loaded = cv2.imread(possible_bg_masks[0], cv2.IMREAD_GRAYSCALE)
+                bg_mask_path = mask_files.get(bg_base_name)
+                if bg_mask_path:
+                    loaded = cv2.imread(bg_mask_path, cv2.IMREAD_GRAYSCALE)
                     if loaded is not None:
                         _, bg_mask = cv2.threshold(loaded, 127, 255, cv2.THRESH_BINARY)
                         if bg_mask.shape[:2] != (H, W):
                             bg_mask = cv2.resize(bg_mask, (W, H), interpolation=cv2.INTER_NEAREST)
 
                 existing_bg_labels = []
-                possible_bg_labels = glob(
-                    os.path.join(data_dir, "**", "label", f"{bg_base_name}.txt"), recursive=True
-                )
-                if possible_bg_labels:
-                    with open(possible_bg_labels[0], "r") as f:
+                bg_label_path = label_files.get(bg_base_name)
+                if bg_label_path:
+                    with open(bg_label_path, "r") as f:
                         existing_bg_labels = f.readlines()
 
                 # --- Object Processing ---
@@ -196,11 +217,9 @@ def synthesize(
                 obj_base_name = os.path.splitext(os.path.basename(obj["source_image"]))[0]
 
                 original_class_id = "-"
-                possible_obj_labels = glob(
-                    os.path.join(data_dir, "**", "label", f"{obj_base_name}.txt"), recursive=True
-                )
-                if possible_obj_labels:
-                    with open(possible_obj_labels[0], "r") as f_label:
+                obj_label_path = label_files.get(obj_base_name)
+                if obj_label_path:
+                    with open(obj_label_path, "r") as f_label:
                         for line in f_label:
                             parts = line.strip().split()
                             if len(parts) >= 5:
@@ -212,13 +231,11 @@ def synthesize(
                                 except ValueError:
                                     pass
 
-                possible_obj_masks = glob(
-                    os.path.join(data_dir, "**", "mask", f"{obj_base_name}.*"), recursive=True
-                )
-                if not possible_obj_masks:
+                obj_mask_path = mask_files.get(obj_base_name)
+                if not obj_mask_path:
                     continue
 
-                obj_src_mask = cv2.imread(possible_obj_masks[0], cv2.IMREAD_GRAYSCALE)
+                obj_src_mask = cv2.imread(obj_mask_path, cv2.IMREAD_GRAYSCALE)
                 if obj_src_mask is None:
                     continue
 
