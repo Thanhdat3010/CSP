@@ -1,47 +1,36 @@
-# Byte-compiled / optimized / DLL files
+# ==============================================================================
+# CSP — Git Ignore
+# ==============================================================================
+
+# Python
 __pycache__/
 *.py[cod]
-*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
 
-# OS generated files
+# Data & Outputs (do NOT commit large files)
+data/
+outputs/
+*.zip
+*.npy
+*.json
+!environment.yml
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
 .DS_Store
 Thumbs.db
 
-# Jupyter Notebook
-.ipynb_checkpoints
-*/.ipynb_checkpoints/*
+# Jupyter checkpoints
+.ipynb_checkpoints/
 
-# YOLOv8 & Training
-runs/
-*.pt
-*.onnx
-*.engine
-
-# Datasets (Extremely large, do not push)
-data/COD10K-datasets/
-data/COD10K_Partitioning/
-data/COD10K-CHARM/
-data/COD10K-MIXUP/
-data/COD10K-CUTMIX/
-data/COD10K-COPYPASTE/
-data/datasets/
-
-# Heavy pre-computed files
-data/centroids.pkl
-data/*.pkl
-data/*.npy
-
-# Compressed Archives (Don't push datasets as zip)
-*.zip
-*.rar
-*.7z
-*.tar.gz
-*.pdf
-
-# Scratch / Temp files
-scratch/
-visualize_labels.py
-bbox_check_collage.jpg
-
-# Proposal & Docs
-# (We WANT to push markdown files, so we don't ignore .md)
+# Conda/Env
+.conda/
+*.conda

@@ -1,0 +1,30 @@
+# ==============================================================================
+# CSP: Context-Synchronized Pipeline — Conda Environment
+# ==============================================================================
+# Create:   conda env create -f environment.yml
+# Activate: conda activate csp
+# Update:   conda env update -f environment.yml --prune
+
+name: csp
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+
+dependencies:
+  - python=3.10
+  - pytorch>=2.0.0
+  - torchvision>=0.15.0
+  - pytorch-cuda=12.1
+  - numpy>=1.24.0
+  - scipy>=1.11.0
+  - scikit-learn>=1.3.0
+  - scikit-image>=0.21.0
+  - tqdm>=4.65.0
+  - pip
+
+  - pip:
+    - opencv-python>=4.8.0
+    - optuna>=3.3.0
+    - gdown>=5.0.0
