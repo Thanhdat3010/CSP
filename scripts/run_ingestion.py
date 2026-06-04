@@ -34,8 +34,8 @@ def parse_args():
                         help="Root of the CSP_Partitioned_Dataset.")
     parser.add_argument("--centroids", type=str, required=True,
                         help="Path to habitat_centroids.npy.")
-    parser.add_argument("--data-dir", type=str, required=True,
-                        help="Root of original dataset (for non-camo images).")
+    parser.add_argument("--new-data", type=str, required=True,
+                        help="Path to the custom background dataset folder (containing image/ and label/).")
     parser.add_argument("--output", type=str, default="./outputs/environment_catalog.json",
                         help="Output path for the environment catalog JSON.")
     parser.add_argument("--rho-max", type=float, default=config.RHO_MAX,
@@ -60,7 +60,7 @@ def main():
     catalog = ingest_backgrounds(
         partitioned_dir=args.partitioned_dir,
         centroids_path=args.centroids,
-        data_dir=args.data_dir,
+        new_data=args.new_data,
         output_path=args.output,
         rho_max=args.rho_max,
         sim_threshold=args.sim_threshold,

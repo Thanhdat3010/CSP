@@ -50,6 +50,8 @@ def parse_args():
     # Core paths
     parser.add_argument("--data-dir", type=str, required=True,
                         help="Path to the dataset root directory.")
+    parser.add_argument("--new-data", type=str, default=None,
+                        help="Path to custom background directory. Defaults to <data-dir>/train/non-camo.")
     parser.add_argument("--output-dir", type=str, default="./outputs",
                         help="Root output directory for all pipeline artifacts.")
 
@@ -104,6 +106,8 @@ def main():
 
     output_dir = args.output_dir
     ensure_dir(output_dir)
+
+    new_data_path = args.new_data if args.new_data is not None else os.path.join(args.data_dir, "train", "non-camo")
 
     # Derived paths
     embeddings_dir = os.path.join(output_dir, "embeddings")
@@ -178,7 +182,7 @@ def main():
     ingest_backgrounds(
         partitioned_dir=partitioned_dir,
         centroids_path=centroids_path,
-        data_dir=args.data_dir,
+        new_data=new_data_path,
         output_path=catalog_path,
         rho_max=args.rho_max,
         sim_threshold=args.sim_threshold,

@@ -34,7 +34,7 @@ logger = logging.getLogger("csp.ingestion")
 def ingest_backgrounds(
     partitioned_dir: str,
     centroids_path: str,
-    data_dir: str,
+    new_data: str,
     output_path: str,
     rho_max: float = config.RHO_MAX,
     sim_threshold: float = config.SIMILARITY_THRESHOLD,
@@ -73,7 +73,7 @@ def ingest_backgrounds(
 
     # Collect all image paths
     reclaimed_source = os.path.join(partitioned_dir, "images")
-    external_source = os.path.join(data_dir, "train", "non-camo", "image")
+    external_source = os.path.join(new_data, "image")
 
     all_image_paths = sorted(
         glob(os.path.join(reclaimed_source, "**", "*.jpg"), recursive=True)
@@ -127,13 +127,11 @@ def ingest_backgrounds(
                 orig_H, orig_W = batch_h[i].item(), batch_w[i].item()
 
                 # Find label path
-                if "non-camo" in img_path:
-                    lbl_path = os.path.join(data_dir, "train", "non-camo", "label", f"{bg_base_name}.txt")
-                elif "CSP_Partitioned_Dataset" in img_path or "Partitioned" in img_path:
+                if img_path.startswith(external_source):
+                    lbl_path = os.path.join(new_data, "label", f"{bg_base_name}.txt")
+                else:
                     lbl_path = img_path.replace(os.sep + "images" + os.sep, os.sep + "labels" + os.sep)
                     lbl_path = os.path.splitext(lbl_path)[0] + ".txt"
-                else:
-                    lbl_path = os.path.join(data_dir, "train", "camo", "label", f"{bg_base_name}.txt")
 
                 # Build occupancy mask at native resolution
                 existing_mask = np.zeros((orig_H, orig_W), dtype=np.uint8)
