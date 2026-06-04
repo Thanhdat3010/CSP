@@ -47,7 +47,7 @@ def ingest_backgrounds(
     Args:
         partitioned_dir: Root of CSP_Partitioned_Dataset.
         centroids_path: Path to habitat_centroids.npy.
-        data_dir: Root of original dataset (for external non-camo images).
+        new_data: Path to custom background directory (containing image/ and label/).
         output_path: Output path for environment_catalog.json.
         rho_max: Maximum background saturation threshold.
         sim_threshold: Minimum cosine similarity for habitat matching.

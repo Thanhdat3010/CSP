@@ -109,7 +109,7 @@ python scripts/run_dictionary.py \
 python scripts/run_ingestion.py \
     --partitioned-dir ./outputs/partitioned/CSP_Partitioned_Dataset \
     --centroids ./outputs/partitioned/habitat_centroids.npy \
-    --data-dir ./data/COD10K \
+    --new-data ./data/COD10K/train/non-camo \
     --output ./outputs/environment_catalog.json
 ```
 
