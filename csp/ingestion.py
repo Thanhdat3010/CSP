@@ -14,19 +14,22 @@ import gc
 import json
 import shutil
 import logging
+import pickle
 
 import cv2
 import numpy as np
 import torch
 from glob import glob
 from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.preprocessing import normalize
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from . import config
 from .utils import seed_everything, get_device, ensure_dir
-from .models import load_dinov2, get_dino_transforms
+from .models import load_dinov2, get_dino_transforms, extract_dino_features
 from .datasets import BackgroundDataset
+from .physics import get_patch_spherical_harmonics
 
 logger = logging.getLogger("csp.ingestion")
 
@@ -60,7 +63,27 @@ def ingest_backgrounds(
     """
     seed_everything(seed)
     device = get_device()
-    ensure_dir(os.path.dirname(output_path))
+    output_dir = os.path.dirname(output_path)
+    ensure_dir(output_dir)
+
+    # Locate and load PCA and scaler from Step 1
+    embeddings_dir = os.path.join(output_dir, "embeddings")
+    if not os.path.exists(os.path.join(embeddings_dir, "pca.pkl")):
+        embeddings_dir = os.path.join(os.path.dirname(os.path.dirname(partitioned_dir)), "embeddings")
+    if not os.path.exists(os.path.join(embeddings_dir, "pca.pkl")):
+        embeddings_dir = "./outputs/embeddings"
+
+    pca_path = os.path.join(embeddings_dir, "pca.pkl")
+    scaler_path = os.path.join(embeddings_dir, "scaler.pkl")
+
+    logger.info("Loading PCA and Scaler from %s...", embeddings_dir)
+    with open(pca_path, "rb") as f:
+        pca = pickle.load(f)
+    with open(scaler_path, "rb") as f:
+        scaler = pickle.load(f)
+
+    background_features_dir = os.path.join(output_dir, "background_features")
+    ensure_dir(background_features_dir)
 
     # Load DINOv2
     dino = load_dinov2(device)
@@ -98,23 +121,20 @@ def ingest_backgrounds(
         for batch_tensors, batch_paths, batch_valid, batch_h, batch_w in tqdm(
             dataloader, desc="Cataloging Backgrounds"
         ):
-            # DINOv2 for external images only
-            needs_dino_idx = []
-            dino_tensors = []
+            # DINOv2 for all valid images in the batch
+            valid_indices = [idx for idx, valid in enumerate(batch_valid) if valid]
 
-            for i, path in enumerate(batch_paths):
-                if not batch_valid[i]:
-                    continue
-                if "CSP_Partitioned_Dataset" not in path and "Partitioned" not in path:
-                    needs_dino_idx.append(i)
-                    dino_tensors.append(batch_tensors[i])
+            batch_cls = {}
+            batch_spatial = {}
+            if valid_indices:
+                valid_tensors = torch.stack([batch_tensors[idx] for idx in valid_indices]).to(device)
+                cls_tokens, spatial_grids = extract_dino_features(dino, valid_tensors)
+                cls_tokens = cls_tokens.cpu().numpy()
+                spatial_grids = spatial_grids.cpu().numpy()
 
-            batch_feats = {}
-            if dino_tensors:
-                dino_input = torch.stack(dino_tensors).to(device)
-                dino_output = dino(dino_input).cpu().numpy()
-                for out_idx, orig_idx in enumerate(needs_dino_idx):
-                    batch_feats[orig_idx] = dino_output[out_idx]
+                for j, orig_idx in enumerate(valid_indices):
+                    batch_cls[orig_idx] = cls_tokens[j]
+                    batch_spatial[orig_idx] = spatial_grids[j]
 
             # Process each image
             for i in range(len(batch_paths)):
@@ -161,6 +181,13 @@ def ingest_backgrounds(
                 if normalized_r_avail < 0.02:
                     continue
 
+                # Global Spherical Harmonics calculation avoiding cluttered areas
+                sh_mask = np.uint8((dist_transform > 5) * 255)
+                img = cv2.imread(img_path)
+                if img is None:
+                    continue
+                global_sh = get_patch_spherical_harmonics(img, mask=sh_mask)
+
                 # Classify habitat
                 best_match_cluster = None
                 best_sim = 1.0
@@ -168,9 +195,9 @@ def ingest_backgrounds(
                 if "CSP_Partitioned_Dataset" in img_path or "Partitioned" in img_path:
                     best_match_cluster = os.path.basename(os.path.dirname(img_path))
                 else:
-                    if i not in batch_feats:
+                    if i not in batch_cls:
                         continue
-                    bg_feat = batch_feats[i]
+                    bg_feat = batch_cls[i]
                     best_sim = -1
                     for cluster_name, centroid in habitat_centroids.items():
                         sim = cosine_similarity(
@@ -180,6 +207,20 @@ def ingest_backgrounds(
                             best_sim, best_match_cluster = sim, cluster_name
                     if best_sim < sim_threshold:
                         continue
+
+                # Compress and save spatial grid
+                if i not in batch_spatial:
+                    continue
+                grid = batch_spatial[i]  # Shape: (H_grid, W_grid, C)
+                H_grid, W_grid, C = grid.shape
+                grid_flat = grid.reshape(-1, C)
+                grid_l2 = normalize(grid_flat, norm="l2", axis=1)
+                grid_scaled = scaler.transform(grid_l2)
+                grid_pca = pca.transform(grid_scaled)
+                grid_compressed = grid_pca.reshape(H_grid, W_grid, -1)
+
+                bg_feat_path = os.path.join(background_features_dir, f"{bg_base_name}.npy")
+                np.save(bg_feat_path, grid_compressed)
 
                 if best_match_cluster not in background_catalog:
                     background_catalog[best_match_cluster] = {}
@@ -191,6 +232,8 @@ def ingest_backgrounds(
                     "R_avail_norm": float(normalized_r_avail),
                     "orig_w": orig_W,
                     "orig_h": orig_H,
+                    "global_sh": global_sh,
+                    "feature_path": bg_feat_path,
                 }
 
     with open(output_path, "w") as f:

@@ -13,18 +13,20 @@ import os
 import gc
 import json
 import logging
+import pickle
 
 import cv2
 import numpy as np
 import torch
 from glob import glob
 from sklearn.ensemble import IsolationForest
+from sklearn.preprocessing import normalize
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from . import config
 from .utils import seed_everything, get_device, ensure_dir
-from .models import load_dinov2, load_midas, get_dino_transforms
+from .models import load_dinov2, load_midas, get_dino_transforms, extract_dino_features
 from .datasets import EnvDataset, PatchDataset
 from .physics import get_topographical_features, get_spherical_harmonics, get_adaptive_solidity
 
@@ -119,7 +121,27 @@ def build_dictionary(
     """
     seed_everything(seed)
     device = get_device()
-    ensure_dir(os.path.dirname(output_path))
+    output_dir = os.path.dirname(output_path)
+    ensure_dir(output_dir)
+
+    # Locate and load PCA and scaler from Step 1
+    embeddings_dir = os.path.join(output_dir, "embeddings")
+    if not os.path.exists(os.path.join(embeddings_dir, "pca.pkl")):
+        embeddings_dir = os.path.join(os.path.dirname(os.path.dirname(partitioned_dir)), "embeddings")
+    if not os.path.exists(os.path.join(embeddings_dir, "pca.pkl")):
+        embeddings_dir = "./outputs/embeddings"
+
+    pca_path = os.path.join(embeddings_dir, "pca.pkl")
+    scaler_path = os.path.join(embeddings_dir, "scaler.pkl")
+
+    logger.info("Loading PCA and Scaler from %s...", embeddings_dir)
+    with open(pca_path, "rb") as f:
+        pca = pickle.load(f)
+    with open(scaler_path, "rb") as f:
+        scaler = pickle.load(f)
+
+    features_dir = os.path.join(output_dir, "object_features")
+    ensure_dir(features_dir)
 
     # Build image registry
     registry = _build_image_registry(partitioned_dir)
@@ -236,9 +258,25 @@ def build_dictionary(
     with torch.no_grad():
         for batch_tensors, batch_ids in tqdm(patch_loader, desc="DINOv2 Object Profiling"):
             batch_tensors = batch_tensors.to(device)
-            feats = dino(batch_tensors).cpu().numpy()
+            cls_tokens, spatial_grids = extract_dino_features(dino, batch_tensors)
+            cls_tokens = cls_tokens.cpu().numpy()
+            spatial_grids = spatial_grids.cpu().numpy()
+
             for i, oid in enumerate(batch_ids):
-                embeddings_dict[oid] = feats[i]
+                embeddings_dict[oid] = cls_tokens[i]
+
+                # Compress and save spatial grid
+                grid = spatial_grids[i]  # Shape: (H_grid, W_grid, C)
+                H_grid, W_grid, C = grid.shape
+                grid_flat = grid.reshape(-1, C)
+                grid_l2 = normalize(grid_flat, norm="l2", axis=1)
+                grid_scaled = scaler.transform(grid_l2)
+                grid_pca = pca.transform(grid_scaled)
+                grid_compressed = grid_pca.reshape(H_grid, W_grid, -1)
+
+                feat_path = os.path.join(features_dir, f"{oid}.npy")
+                np.save(feat_path, grid_compressed)
+                obj_metadata[oid]["feature_path"] = feat_path
 
     # --- Isolation Forest & JSON Assembly ---
     logger.info("Applying Isolation Sieve per cluster...")

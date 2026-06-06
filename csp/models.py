@@ -59,3 +59,28 @@ def get_dino_transforms() -> T.Compose:
         T.ToTensor(),
         T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
     ])
+
+
+def extract_dino_features(model: torch.nn.Module, image_tensor: torch.Tensor):
+    """Extract both the CLS token and dense spatial patch features.
+
+    Args:
+        model: DINOv2 model.
+        image_tensor: Tensor of shape (B, 3, H, W).
+
+    Returns:
+        cls_token: Tensor of shape (B, C) where C is feature dim.
+        spatial_grid: Tensor of shape (B, H_grid, W_grid, C).
+    """
+    features = model.forward_features(image_tensor)
+    cls_token = features["x_norm_clstoken"]
+    patch_tokens = features["x_norm_patchtokens"]
+
+    B, N, C = patch_tokens.shape
+    H, W = image_tensor.shape[2:]
+    grid_h = H // 14
+    grid_w = W // 14
+
+    spatial_grid = patch_tokens.reshape(B, grid_h, grid_w, C)
+    return cls_token, spatial_grid
+

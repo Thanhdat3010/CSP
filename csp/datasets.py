@@ -127,7 +127,7 @@ class AtomicSynthesisDataset(Dataset):
     """Dataset for task-centric synthesis (Cell 8).
 
     Each item is one (background, object) atomic task.
-    Returns (tensor, bg_path, obj_json_str, is_valid, height, width).
+    Returns (tensor, bg_path, obj_json_str, is_valid, height, width, bg_meta_json).
     """
 
     def __init__(self, tasks, transform):
@@ -143,7 +143,7 @@ class AtomicSynthesisDataset(Dataset):
 
         img = cv2.imread(bg_path)
         if img is None:
-            return torch.zeros(3, 256, 256), bg_path, json.dumps({}), False, 0, 0
+            return torch.zeros(3, 256, 256), bg_path, json.dumps({}), False, 0, 0, json.dumps({})
 
         h, w = img.shape[:2]
         img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
@@ -151,4 +151,5 @@ class AtomicSynthesisDataset(Dataset):
         tensor = self.transform(img_rgb).squeeze(0)
 
         obj_json = json.dumps(task["obj_data"])
-        return tensor, bg_path, obj_json, True, h, w
+        bg_meta_json = json.dumps(task.get("bg_meta", {}))
+        return tensor, bg_path, obj_json, True, h, w, bg_meta_json

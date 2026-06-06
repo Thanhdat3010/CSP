@@ -13,6 +13,7 @@ import gc
 import shutil
 import logging
 import zipfile
+import pickle
 
 import cv2
 import gdown
@@ -26,7 +27,7 @@ from tqdm import tqdm
 
 from . import config
 from .utils import seed_everything, get_device, ensure_dir
-from .models import load_dinov2
+from .models import load_dinov2, extract_dino_features
 from .datasets import RawSemanticDataset, collate_filter_none
 
 logger = logging.getLogger("csp.embedding")
@@ -141,14 +142,16 @@ def extract_embeddings(
     with torch.no_grad():
         for img_pt, paths in tqdm(dataloader, desc="Extracting DINOv2 Embeddings"):
             img_pt = img_pt.to(device, non_blocking=True)
-            dino_out = dino(img_pt).cpu().numpy()
+            dino_out, _ = extract_dino_features(dino, img_pt)
+            dino_out = dino_out.cpu().numpy()
             all_feats["dino"].append(dino_out)
             all_feats["paths"].extend(paths)
 
     # --- Normalize & Compress ---
     V_DINO = np.vstack(all_feats["dino"])
     dino_l2 = normalize(V_DINO, norm="l2", axis=1)
-    v_dino_scaled = StandardScaler().fit_transform(dino_l2)
+    scaler = StandardScaler()
+    v_dino_scaled = scaler.fit_transform(dino_l2)
 
     pca = PCA(n_components=pca_variance, random_state=seed)
     V_FINAL = pca.fit_transform(v_dino_scaled)
@@ -169,6 +172,11 @@ def extract_embeddings(
     np.save(os.path.join(output_dir, "V_FINAL.npy"), V_FINAL)
     np.save(os.path.join(output_dir, "dino_l2.npy"), dino_l2)
     np.save(os.path.join(output_dir, "image_paths.npy"), np.array(all_feats["paths"]))
+    
+    with open(os.path.join(output_dir, "scaler.pkl"), "wb") as f:
+        pickle.dump(scaler, f)
+    with open(os.path.join(output_dir, "pca.pkl"), "wb") as f:
+        pickle.dump(pca, f)
 
     logger.info("Embeddings saved to %s", output_dir)
 

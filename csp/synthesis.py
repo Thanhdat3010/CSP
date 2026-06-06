@@ -19,6 +19,7 @@ import logging
 import cv2
 import numpy as np
 import torch
+import torch.nn.functional as F
 from glob import glob
 from scipy.spatial.distance import cosine
 from torch.utils.data import DataLoader
@@ -72,10 +73,37 @@ def _flatten_tasks(environments: dict, dictionary: dict) -> list:
 
                 for obj in habitat_objects:
                     if scale["A_min"] <= obj["area"] <= scale["A_max"]:
+                        # O(1) Pre-filtering Checks
+                        bg_orig_w = item_meta["orig_w"]
+                        bg_orig_h = item_meta["orig_h"]
+                        r_avail_px = item_meta["R_avail_norm"] * bg_orig_w
+                        
+                        _, _, _, bw, bh = obj["bbox"]
+                        obj_w_px = bw * bg_orig_w
+                        obj_h_px = bh * bg_orig_h
+                        obj_max_dim = max(obj_w_px, obj_h_px)
+                        
+                        # Spatial Capacity Check
+                        if obj_max_dim > (r_avail_px * 2):
+                            continue
+                        
+                        # Global Lighting Check
+                        if "global_sh" in item_meta:
+                            sh_bg = item_meta["global_sh"]
+                            sh_obj = obj["c_sh"]
+                            if np.sum(np.abs(sh_bg)) > 0 and np.sum(np.abs(sh_obj)) > 0:
+                                sim = 1.0 - cosine(sh_obj, sh_bg)
+                                if sim < 0.60:
+                                    continue
+
+                        bg_meta_copy = item_meta.copy()
+                        bg_meta_copy["habitat"] = habitat
+
                         tasks.append({
                             "bg_path": bg_path,
                             "obj_data": obj,
                             "habitat": habitat,
+                            "bg_meta": bg_meta_copy,
                         })
 
     return tasks
@@ -162,10 +190,11 @@ def synthesize(
 
     success_count = 0
     source_image_cache = {}
+    dt_cache = {}
 
     logger.info("Starting synthesis loop (max limit: %d)...", max_synthesis_images)
     with torch.no_grad():
-        for batch_tensors, batch_paths, batch_obj_jsons, batch_valid, batch_h, batch_w in tqdm(
+        for batch_tensors, batch_paths, batch_obj_jsons, batch_valid, batch_h, batch_w, batch_bg_meta_jsons in tqdm(
             dataloader, desc="Synthesizing Scenes"
         ):
             if success_count >= max_synthesis_images:
@@ -183,6 +212,7 @@ def synthesize(
 
                 bg_path = batch_paths[i]
                 obj = json.loads(batch_obj_jsons[i])
+                bg_meta = json.loads(batch_bg_meta_jsons[i])
                 H, W = batch_h[i].item(), batch_w[i].item()
                 bg_base_name = os.path.splitext(os.path.basename(bg_path))[0]
 
@@ -252,20 +282,112 @@ def synthesize(
                 src_img = source_image_cache[src_path]
                 src_H, src_W = src_img.shape[:2]
 
-                # --- Placement Retry Loop ---
-                for attempt in range(max_retries):
+                # --- Deterministic Scale-Space Search ---
+                # Load or compute DT map for this background
+                if bg_path not in dt_cache:
+                    empty_space = np.uint8((bg_mask == 0) * 255)
+                    dt_map = cv2.distanceTransform(empty_space, cv2.DIST_L2, 5)
+                    dt_cache[bg_path] = dt_map
+                else:
+                    dt_map = dt_cache[bg_path]
+
+                # Load feature grids
+                try:
+                    bg_spatial_grid = np.load(bg_meta["feature_path"])
+                    obj_spatial_grid = np.load(obj["feature_path"])
+                except Exception as e:
+                    logger.warning("Failed to load feature grids for task: %s", e)
+                    continue
+
+                # Scale Space bounds
+                import math
+                area_orig = obj["area"]
+                habitat = bg_meta.get("habitat", "cluster_1")
+                scale_bounds = dictionary.get(habitat, {}).get("scale_bounds", {"A_min": 0.01, "A_max": 0.20})
+                A_min = scale_bounds["A_min"]
+                A_max = scale_bounds["A_max"]
+
+                min_scale = math.sqrt(max(1e-5, A_min) / max(1e-5, area_orig))
+                max_scale = math.sqrt(A_max / max(1e-5, area_orig))
+
+                min_scale = max(0.3, min_scale)
+                max_scale = min(1.5, max_scale)
+                if min_scale > max_scale:
+                    min_scale, max_scale = max_scale, min_scale
+
+                candidate_scales = np.linspace(min_scale, max_scale, num=5)
+                obj_max_dim = max(src_bw * W, src_bh * H)
+                base_obj_radius = obj_max_dim / 2.0
+
+                # Convert to tensors
+                bg_grid = torch.tensor(bg_spatial_grid).permute(2, 0, 1).unsqueeze(0).to(device)  # (1, C, H_bg, W_bg)
+                obj_grid = torch.tensor(obj_spatial_grid).permute(2, 0, 1).unsqueeze(0).to(device)  # (1, C, H_obj, W_obj)
+                dt_map_tensor = torch.tensor(dt_map).to(device)  # (H, W)
+
+                best_score = -1.0
+                best_params = (None, None, None)
+
+                for scale in candidate_scales:
+                    scaled_obj_grid = F.interpolate(
+                        obj_grid,
+                        scale_factor=scale,
+                        mode="bilinear",
+                        align_corners=False
+                    )
+
+                    obj_vector = scaled_obj_grid.mean(dim=(2, 3)).squeeze()  # (C,)
+                    bg_vectors = bg_grid.squeeze().permute(1, 2, 0)  # (H_bg, W_bg, C)
+
+                    # Cosine similarity heatmap
+                    semantic_heatmap = F.cosine_similarity(
+                        bg_vectors,
+                        obj_vector.view(1, 1, -1),
+                        dim=-1
+                    )  # (H_bg, W_bg)
+
+                    # Resize heatmap to match full image dimensions
+                    semantic_heatmap_full = F.interpolate(
+                        semantic_heatmap.unsqueeze(0).unsqueeze(0),
+                        size=dt_map_tensor.shape,
+                        mode="bilinear",
+                        align_corners=False
+                    ).squeeze()  # (H, W)
+
+                    # Apply Spatial Constraint Mask
+                    current_radius = base_obj_radius * scale
+                    spatial_mask = (dt_map_tensor >= current_radius).float()
+
+                    # Suitability Map
+                    suitability = semantic_heatmap_full * spatial_mask
+
+                    max_val = suitability.max().item()
+                    if max_val > best_score and max_val > 0.0:
+                        best_score = max_val
+                        max_idx = (suitability == max_val).nonzero(as_tuple=True)
+                        optimal_y, optimal_x = max_idx[0][0].item(), max_idx[1][0].item()
+                        best_params = (scale, optimal_y, optimal_x)
+
+                final_scale, optimal_y, optimal_x = best_params
+                if final_scale is None:
+                    continue  # Object cannot physically fit, discard task
+
+                # Single-attempt loop to preserve downstream variable indentation
+                for attempt in range(1):
                     pad_x_pct = 0.05
                     pad_y_pct = 0.05
-                    padded_bw = src_bw + (src_bw * pad_x_pct * 2)
-                    padded_bh = src_bh + (src_bh * pad_y_pct * 2)
+                    padded_bw = (src_bw + (src_bw * pad_x_pct * 2)) * final_scale
+                    padded_bh = (src_bh + (src_bh * pad_y_pct * 2)) * final_scale
 
                     target_w = int(padded_bw * W)
                     target_h = int(padded_bh * H)
                     if target_w >= W or target_h >= H or target_w <= 10 or target_h <= 10:
                         break
 
-                    prop_x = random.randint(5, max(5, W - target_w - 5))
-                    prop_y = random.randint(5, max(5, H - target_h - 5))
+                    prop_x = int(optimal_x - target_w // 2)
+                    prop_y = int(optimal_y - target_h // 2)
+
+                    prop_x = max(5, min(W - target_w - 5, prop_x))
+                    prop_y = max(5, min(H - target_h - 5, prop_y))
 
                     bg_patch = bg_img[prop_y : prop_y + target_h, prop_x : prop_x + target_w]
                     actual_h, actual_w = bg_patch.shape[:2]
